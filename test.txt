@@ -1,4 +1,46 @@
+#Univariate Cox regression, Multivariate Cox regression
 library(tidyverse)
 library(survival)
 library(rms)
 library(survminer)
+summary(datExpr$time)
+table(datExpr$status)
+datExpr$status <- ifelse(datExpr$status == "1",1,0)
+surv_object <- with(datExpr, Surv(time, status))
+result <- data.frame("Gene" = character(),
+                     "Hazard Ratio" = numeric(),
+                     "95%CI" = character(),
+                     "P value" = numeric())
+
+for (i in 3:length(colnames(datExpr))) {
+  print(i)
+  gene <- colnames(datExpr)[i]
+  model <- coxph(surv_object ~ datExpr[[gene]], data = datExpr)
+  data_use <- summary(model)
+  HR <- round(data_use$coefficients[,2],2)
+  CI <- paste0(round(data_use$conf.int[,3:4],2),collapse = '-')
+  P_value <- round(data_use$coefficients[,5],3)
+  temp_result <- data.frame("Gene" = colnames(datExpr)[i],
+                            "Hazard Ratio" = HR,
+                            "95%CI" = CI,
+                            "P value" = P_value)
+  result <- rbind(result, temp_result)
+}
+write.csv(result, file = "results.csv")
+result_use <- result
+result_use$significant <- ifelse(result_use$P.value < 0.05,"significant","Not significant")
+table(result_use$significant)
+multi_cox_genes <- result_use[result_use$significant == "significant",]$Gene
+formula <- as.formula(paste("Surv(time, status) ~", paste(multi_cox_genes, collapse = " + ")))
+multi_cox_model <- coxph(formula, data = datExpr)
+
+data_use <- summary(multi_cox_model)
+
+multi_cox_HR <- round(data_use$coefficients[,2],2)
+multi_cox_CI2.5 <- round(data_use$conf.int[,3],2)
+multi_cox_CI97.5 <- mul_CI95<-round(data_use$conf.int[,4],2)
+multi_cox_CI <- paste0('(',multi_cox_CI2.5,'-',multi_cox_CI97.5,')')
+multi_cox_P_value <- round(data_use$coefficients[,5],3)#P值
+Variable <- row.names(data.frame(data_use$coefficients))
+multi_cox_result<- data.frame(Variable,multi_cox_HR,multi_cox_CI2.5,multi_cox_CI97.5,multi_cox_CI,multi_cox_P_value)
+view(multi_cox_result)

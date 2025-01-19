@@ -44,3 +44,178 @@ multi_cox_P_value <- round(data_use$coefficients[,5],3)#P值
 Variable <- row.names(data.frame(data_use$coefficients))
 multi_cox_result<- data.frame(Variable,multi_cox_HR,multi_cox_CI2.5,multi_cox_CI97.5,multi_cox_CI,multi_cox_P_value)
 view(multi_cox_result)
+
+#LASSO regression
+library(glmnet)
+library(corrplot)
+library(car)
+library(survival)
+library(dplyr)
+time <- datExpr[,"time"]
+status <- datExpr[,"status"]
+X <- as.matrix(datExpr[:])
+Y <- as.matrix(Surv(time, status))
+lasso <- glmnet(X,Y,family = "cox",alpha = 1)
+print(lasso)
+plot(lasso,xvar = "lambda", label = F)
+coef_lasso <- coef(lasso, s = )
+coef_lasso
+set.seed( )
+lasso_cv <- cv.glmnet(X,Y,family = "cox",alpha = 1,nfolds = 10)
+plot(lasso_cv) 
+lambda <- lasso_cv$lambda.1se
+lambda
+coef_lasso_cv <- coef(lasso, s = lambda)
+coef_lasso_cv
+exp(coef_lasso_cv)
+
+#Random survival forest
+library(randomForestSRC)
+library(dplyr)
+library(rms)
+library(timeROC)
+library(interp)
+library(ggplot2)
+set.seed()
+tune.rfs<-tune(Surv(time, status) ~ .
+     , dt2
+     , mtryStart = 10
+     , nodesizeTry = c(:)
+     , ntreeTry =
+     , nsplit = 1
+     , stepFactor = 2
+     )
+plot.tune <- function(o, linear = TRUE) {
+    x <- o$results[,1]
+    y <- o$results[,2]
+    z <- o$results[,3]
+    so <- interp(x=x, y=y, z=z, linear = linear)
+    idx <- which.min(z)
+    x0 <- x[idx]
+    y0 <- y[idx]
+    filled.contour(x = so$x,
+                   y = so$y,
+                   z = so$z,
+                   xlim = range(so$x, finite = TRUE) + c(-2, 2),
+                   ylim = range(so$y, finite = TRUE) + c(-2, 2),
+                   color.palette =
+                     colorRampPalette(c("yellow", "red")),
+                   xlab = "nodesize",
+                   ylab = "mtry",
+                   main = "error rate for nodesize and mtry",
+                   key.title = title(main = "OOB error", cex.main = 1),
+                   plot.axes = {axis(1);axis(2);points(x0,y0,pch="x",cex=1,font=2);
+                     points(x,y,pch=16,cex=.25)})
+set.seed()
+rsf.mod<-rfsrc(Surv(time,status)~.
+               ,data = 
+               ,ntree = 
+               ,mtry = tune.rfs$optimal[[2]] 
+               ,nodesize = tune.rfs$optimal[[1]]
+               ,samptype = 'swor' 
+               ,block.size = 1 
+               ,importance = T
+               ,splitrule = 'logrank'
+               ,seed = -1
+)
+plot(rsf.mod)
+vimp.obj<-vimp(rsf.mod,importance = T,block.size = 1)
+plot(vimp.obj)
+imp<-sort(vimp.obj$importance,decreasing = TRUE)
+print(imp)
+write.csv(imp,file = 'importance.csv')
+#nomogram
+library(rms)
+library(survival)
+library(pROC)
+library(timeROC)
+surv_object <- with(mydata, Surv(time, status==1))
+model <-  cph(surv_object ~ , x = TRUE ,y = TRUE, surv = TRUE, data = )
+surv <- Survival(model)
+
+surv_3m <- function(x)surv(30*3,lp=x)
+surv_6m <- function(x)surv(30*6,lp=x)
+surv_9m <- function(x)surv(30*9,lp=x)
+surv_12m <- function(x)surv(30*12,lp=x)
+
+
+Nomogram_1 <- nomogram(model,fun = list(surv_3m,surv_6m,surv_9m,surv_12m),lp=F,
+                       funlabel = c('3m survival rate','6m survival rate','9msurvival rate','12msurvival rate'),
+                       maxscale = 100,fun.at = c(0.1,seq(0.1,0.9,by=0.1),0.90))
+plot(Nomogram_1)
+
+# ROC
+pred <- predict(model,mydata,type="lp")
+ROC_table <- data.frame(time = mydata[,"time"],status = mydata[,"status"],score = pred)
+time_roc_res <- timeROC(T = ROC_table$time,
+                        delta = ROC_table$status,
+                        marker = ROC_table$score,
+                        cause = 1,
+                        weighting="marginal",
+                        times = c(30*3, 30*6, 30*9,30*12),
+                        ROC = TRUE,
+                        iid = TRUE
+                        )
+time_ROC_df <- data.frame(TP_3m = time_roc_res$TP[, 1],
+                          FP_3m = time_roc_res$FP[, 1],
+                          TP_6m = time_roc_res$TP[, 2],
+                          FP_6m = time_roc_res$FP[, 2],
+                          TP_9m = time_roc_res$TP[, 3],
+                          FP_9m = time_roc_res$FP[, 3],
+                          TP_12m = time_roc_res$TP[, 3],
+                          FP_12m = time_roc_res$FP[, 3]
+                          )
+
+ggplot(data = time_ROC_df) +
+  geom_line(aes(x = FP_3m, y = TP_3m), size = 1, color = "#0067B5") +
+  geom_line(aes(x = FP_6m, y = TP_6m), size = 1, color = "#09891D") +
+  geom_line(aes(x = FP_9m, y = TP_9m), size = 1, color = "#BC1328") +
+  geom_line(aes(x = FP_12m, y = TP_12m), size = 1, color = "#BC1328") +
+  geom_abline(slope = 1, intercept = 0, color = "grey", size = 1, linetype = 2) +
+  theme_bw() +
+  annotate("text",x = 0.75, y = 0.20, size = 4.5,label = paste0("AUC of 1-year survival = ", sprintf("%.3f", time_roc_res$AUC[[1]])), color = "#0067B5") +
+  annotate("text",x = 0.75, y = 0.15, size = 4.5,label = paste0("AUC of 3-year survival = ", sprintf("%.3f", time_roc_res$AUC[[2]])), color = "#09891D") +
+  annotate("text",x = 0.75, y = 0.10, size = 4.5,label = paste0("AUC of 5-year survival = ", sprintf("%.3f", time_roc_res$AUC[[3]])), color = "#BC1328") +
+  labs(x = "1-specificity", y = "Sensitivity") +
+  theme(axis.text = element_text(face = "bold", size = 11, color = "black"),
+        axis.title.x = element_text(face = "bold", size = 14, color = "black", margin = margin(c(15, 0, 0, 0))),
+        axis.title.y = element_text(face = "bold", size = 14, color = "black", margin = margin(c(0, 15, 0, 0))))
+
+#calibration curve
+model_1 <- cph(surv_object ~ , x = TRUE ,y = TRUE, surv=TRUE, time.inc = , data = )
+cal_1 <- calibrate(model_1,
+                   cmethod = 'KM',
+                   method = 'boot', 
+                   u = ,
+                   m = 20, 
+                   B = 200)
+
+plot(cal_1,
+     lwd = 2,
+     lty = 1,
+     errbar.col="blue",
+     xlim=c(0,1),ylim=c(0,1),
+     xlab="Nomogram-Predicted Probabilityof 1 years OS",
+     ylab="Actua1 1 years OS", 
+     col="red", 
+     subtitles=F  
+     )
+
+# N Cross-validation
+library(pec)
+library(rms)
+library(survival)
+cox_model <- coxph(Surv(time, status) ~ , data = )
+
+cox_model_rms <- cph(Surv(time, status) ~ , data = , surv = TRUE)
+set.seed()  # 确保结果可复现
+
+cv_results <- pec(object = list("CoxPH" = cox_model_rms),
+                  formula = Surv(time, status) ~ ,
+                  data = ,
+                  splitMethod = "Boot632plus",
+                  B = 100,  
+                  verbose = TRUE)
+print(cv_results)
+
+plot(cv_results)
